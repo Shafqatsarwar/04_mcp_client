@@ -1,5 +1,91 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.client.streamable_http import streamablehttp_client
+from mcp import ClientSession, types
+import asyncio
+from contextlib import AsyncExitStack
 
-mcp_app = FastMCP(name = "MCP Client", stateless_http = True)
+class MCPClient:
+    def __init__(self, url):
+        self.url = url
+        self.stack = AsyncExitStack()
+        self._sess = None
 
-mcp_server = mcp_app.streamable_http_app()
+    async def __aenter__(self):
+        # Connect to MCP server and get streams
+        read, write, _ = await self.stack.enter_async_context(
+            streamablehttp_client(self.url)
+        )
+
+        # Create a proper MCP ClientSession from streams
+        self._sess = await self.stack.enter_async_context(
+            ClientSession(read, write)
+        )
+
+        # Initialize the session
+        await self._sess.initialize()
+        return self
+
+    async def __aexit__(self, *args):
+        await self.stack.aclose()
+
+    async def list_tools(self) -> list[types.Tool]:
+        return (await self._sess.list_tools()).tools
+
+    async def call_tool(self, tool_name, *args, **kwargs):
+        return await self._sess.call_tool(tool_name, *args, **kwargs)
+
+    async def list_resouces(self) -> list[types.Resource]:
+        #assert self._sess, "Session not available."
+        result:types.ListResourcesResult = await self._sess.list_resources()
+        return result.resources
+
+async def main():
+    async with MCPClient("http://localhost:8000/mcp") as client:
+        tools = await client.list_tools()
+        print("Available Tools!\n", tools)
+        resources = await client.list_resouces()
+        print("Available Resources!\n", resources)
+
+asyncio.run(main())
+
+
+# # Chat GPT 5
+
+# from mcp.client.streamable_http import streamablehttp_client
+# from mcp import ClientSession
+# import asyncio
+# from contextlib import AsyncExitStack
+
+# class MCPClient:
+#     def __init__(self, url):
+#         self.url = url
+#         self.stack = AsyncExitStack()
+#         self._sess = None
+
+#     async def __aenter__(self):
+#         read, write, _ = await self.stack.enter_async_context(
+#             streamablehttp_client(self.url)
+#         )
+#         self._sess = await self.stack.enter_async_context(
+#             ClientSession(read, write)
+#         )
+#         await self._sess.initialize()
+#         return self
+    
+#     async def __aexit__(self, *args):
+#         await self.stack.aclose()
+
+#     async def list_tools(self):
+#         return (await self._sess.list_tools()).tools
+    
+#     async def call_tool(self, tool_name, *args, **kwargs):
+#         return await self._sess.call_tool(tool_name, *args, **kwargs)
+    
+#     async def resources(self):
+#         return await self._sess.resources()
+
+# async def main():
+#     async with MCPClient("http://localhost:8000/mcp") as client:
+#         tools = await client.list_tools()
+#         print(tools, "tools")
+
+# asyncio.run(main())
